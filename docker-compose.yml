@@ -1,0 +1,83 @@
+services:
+  nginx:
+    depends_on:
+      - spring
+    build:
+      context: "observability/nginx"
+      dockerfile: "Dockerfile"
+    ports:
+      - 80:80
+  mysql:
+    image: mysql
+    container_name: mysql
+    restart: always                       # always restart
+    environment:
+      MYSQL_DATABASE: 'test'              # name of database
+      MYSQL_USER: 'sample'                # sample is the name of user
+      MYSQL_PASSWORD: 'password'          # password for sample user
+      MYSQL_ROOT_PASSWORD: 'password'     # password for root user
+    ports:
+      - '3306:3306'                       # host port 3306 is mapper to docker port 3306
+    expose:
+      - '3306'
+    volumes:
+      - ./observability/mysql-db:/var/lib/mysql
+  spring:
+    #ports:
+    #  - 8080:8080
+    depends_on:
+      - mysql
+    build:
+      context: "."
+      dockerfile: "Dockerfile"
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - "./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml" # exporters
+      - "./observability/prometheus/rules.yml:/etc/prometheus/rules.yml" # alertings rules
+    ports:
+      - 9090:9090
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - 3000:3000
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+  # todo add prometheus datasource (via json definition or something=
+    volumes:
+      - ./observability/grafana:/etc/grafana/provisioning/datasources
+  mysql-exporter:
+    image: prom/mysqld-exporter
+    depends_on:
+     - mysql
+    command:
+     - --config.my-cnf=/cfg/.my.cnf
+     - --mysqld.address=localhost:3306
+    volumes:
+      - "./observability/mysql/.my.cnf:/cfg/.my.cnf"
+    ports:
+      - 9104:9104
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:0.11.0
+    depends_on:
+      - nginx
+    command:
+      - -nginx.scrape-uri=http://nginx:80/stub_status
+    ports:
+      - "9113:9113"
+  node_exporter:
+    image: quay.io/prometheus/node-exporter:latest
+    container_name: node_exporter
+    command:
+      - '--path.rootfs=/host'
+    network_mode: host
+    pid: host
+    restart: unless-stopped
+    volumes:
+      - '/:/host:ro,rslave'
+    ports:
+      - "9113:9113" # not required
+
